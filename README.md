@@ -1,75 +1,31 @@
-# Fetch all transactions from the XRP ledger
+# Tools for synchronizing the XRP ledger with a Neo4j database
 
-This code allows you to fetc all transactions from the XRP ledger and insert them into Google BigQuery. 
-
-# The data is already READY TO USE 🎉!
-
-The data is already available in a **PUBLIC dataset** at Google BigQuery in:
-
-```
-xrpledgerdata.fullhistory.transactions
-```
-
-So a working sample query with some stats would be:
-
-```
-SELECT 
-  COUNT(1) as TxCount,
-  MIN(LedgerIndex) as MinLedger,
-  MAX(LedgerIndex) as MaxLedger,
-  COUNT(DISTINCT LedgerIndex) as LedgersWithTxCount
-FROM 
-  xrpledgerdata.fullhistory.transactions
-```
-
-Starting Sept. 27 2018 the dataset will be backfilled from a [full history rippled node](https://twitter.com/WietseWind/status/1027957804429193216). Once up to date, I'll run a service that will add all new transactions to the dataset as well.
-
-# Run and insert into your own Google BigQuery project
+This code allows you to fetch all transactions from the XRP ledger and insert them into a Neo4j database. 
 
 ## Setup
 
-If you want to insert the data in your own BigQuery project, download your credentials (JSON) from the Google Admin Console, and export the path to your credentials file:
-
-### OSX 
+If you want to insert the data in your own [Neo4j](https://neo4j.com) database, make sure to update the credentials and database location in shared.js:
 
 ```
-export GOOGLE_APPLICATION_CREDENTIALS="[PATH]"
+const driver = neo4j.driver("bolt://localhost", neo4j.auth.basic("neo4j", "1234"));
 ```
 
-### Windows
+## Database population
 
-Powershell:
+You can populate the database in two ways, using SQLite files or live from a rippled node. No matter which you use, it will set up the project and continue from the first available ledger in the source.
 
-```
-$env:GOOGLE_APPLICATION_CREDENTIALS="[PATH]"
-```
+### Note
 
-Command Prompt:
+This means that if you populate from a current non-complete SQLite file, running index.js will pick up from the latest ledger index in the Neo4j database, and you will not include all history. 
 
-```
-set GOOGLE_APPLICATION_CREDENTIALS=[PATH]
-```
+Wallets will also only be created from the transactions where they were initially created, so any transactions involving a wallet that is not in the Neo4j database *will not be included*.
 
-## OSX Sample
+### Initial population from SQLite files
 
-```
-export GOOGLE_APPLICATION_CREDENTIALS="/home/user/Downloads/[FILE_NAME].json"
-```
+If you have access to a *full history* transaction.db and ledger.db from a rippled node, you can add the files to the project and run `node sql.js`.
 
-More information:
-https://cloud.google.com/docs/authentication/getting-started
+## Population from a ripple host
 
-> Now modify `schema.js` (line 1-3) to point to your own projectId, dataset and table.
+Start the script using `node index.js`. Change the rippled node address if you want to use an alternative node.
 
-# Create schema
-
-Run `node applySchema.js`
-
-**WARNING!** If an existing table exists, the table, schema and data will be **REMOVED**!
-
-# Insert data
-
-You can invoke the script from a node enabled environment by setting these environment variables:
-
-- `NODE`: the rippled node (`wss://...`) to connect to, default: **wss://s2.ripple.com**
-- `LEDGER`: the ledger index to start fetching transactions from, default: **32570**
+This can also be used to keep the database in sync after populating with SQLite files.
