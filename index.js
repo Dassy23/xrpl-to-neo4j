@@ -25,7 +25,10 @@ new Client("wss://s2.ripple.com").then(Connection => {
 				expand: false, // Because expanded binary results do not contain transaction hashes, it has to be done in two queries. https://github.com/ripple/rippled/issues/2803
 				binary: false
 			}, 10).then(Result => {
-				if (typeof Result.ledger.transactions === 'undefined' || Result.ledger.transactions.length === 0) {
+				if(!Result.ledger.closed) {
+					resolve({activations: [], account_changes: [], payments: [], done: true});
+				}
+				else if(typeof Result.ledger.transactions === 'undefined' || Result.ledger.transactions.length === 0) {
 					resolve({activations: [], account_changes: [], payments: [], done: false});
 				} else {
 					return Connection.send({
