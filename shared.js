@@ -134,133 +134,134 @@ prepareLedgerTransactions = (transactions) => {
 		var payments = [];
 	
 		transactions.forEach(Tx => {
-			if(Tx.TransactionType === "AccountSet" && Tx.metaData.TransactionResult === "tesSUCCESS") {
-				Tx.metaData.AffectedNodes.forEach(affectedNode => {
-					if (typeof affectedNode.ModifiedNode !== 'undefined' && affectedNode.ModifiedNode.LedgerEntryType === 'AccountRoot') {
-						var account_change = {
-							account: affectedNode.ModifiedNode.FinalFields.Account
-						}
-
-						if(typeof affectedNode.ModifiedNode.FinalFields.Domain !== 'undefined') {
-							account_change.domain = hex2a(affectedNode.ModifiedNode.FinalFields.Domain);
-						}
-
-						account_changes.push(account_change);
+			if(Tx.metaData.TransactionResult === "tesSUCCESS") {
+				if(Tx.TransactionType === "Payment") {
+					var payment = {
+						sender: Tx.Account,
+						receiver: Tx.Destination,
+						ledger_index: Tx.LedgerSeq,
+						date: Tx.ClosingTime,
+						hash: Tx.hash,
+						fee: parseFloat(Tx.Fee / 1000000)
 					}
-				})
-			}
-
-			if(Tx.TransactionType === "Payment" && Tx.metaData.TransactionResult === "tesSUCCESS") {
-				var payment = {
-					sender: Tx.Account,
-					receiver: Tx.Destination,
-					ledger_index: Tx.LedgerSeq,
-					date: Tx.ClosingTime,
-					hash: Tx.hash,
-					fee: parseFloat(Tx.Fee / 1000000)
-				}
-
-				if(typeof Tx.Memos !== 'undefined') {
-					var memos = [];
-					Tx.Memos.forEach(memo => {
-						var memoLines = []
-						if(typeof memo.Memo === 'object') {
-							if(typeof memo.Memo.MemoType !== 'undefined') {
-								memoLines.push("MemoType: " + hex2a(memo.Memo.MemoType));
+            	
+					if(typeof Tx.Memos !== 'undefined') {
+						var memos = [];
+						Tx.Memos.forEach(memo => {
+							var memoLines = []
+							if(typeof memo.Memo === 'object') {
+								if(typeof memo.Memo.MemoType !== 'undefined') {
+									memoLines.push("MemoType: " + hex2a(memo.Memo.MemoType));
+								}
+								if(typeof memo.Memo.MemoFormat !== 'undefined') {
+									memoLines.push("MemoFormat: " + hex2a(memo.Memo.MemoFormat));
+								}
+								if(typeof memo.Memo.MemoData !== 'undefined') {
+									memoLines.push("MemoData: " + hex2a(memo.Memo.MemoData));
+								}
 							}
-							if(typeof memo.Memo.MemoFormat !== 'undefined') {
-								memoLines.push("MemoFormat: " + hex2a(memo.Memo.MemoFormat));
-							}
-							if(typeof memo.Memo.MemoData !== 'undefined') {
-								memoLines.push("MemoData: " + hex2a(memo.Memo.MemoData));
+							memos.push(memoLines.join('\n'))
+						})
+						if(memos.length > 0) {
+							payment.memos = memos.join('\n\n');
+						}
+					}
+            	
+					if(typeof Tx.SourceTag !== 'undefined') {
+						payment.source_tag = parseInt(Tx.SourceTag);
+					}
+						
+					if(typeof Tx.Flags !== 'undefined') {
+						payment.flags = parseInt(Tx.Flags);
+					}
+						
+					if(typeof Tx.InvoiceID !== 'undefined') {
+						payment.invoice_id = Tx.InvoiceID;
+					}
+															
+					if(typeof Tx.DestinationTag !== 'undefined') {
+						payment.destination_tag = parseInt(Tx.DestinationTag);
+					}
+            	
+					if(typeof Tx.Amount === 'string') {
+						payment.amount = {
+							currency: "XRP",
+							value: parseFloat(Tx.Amount / 1000000)
+						}
+					} 
+					else if(typeof Tx.Amount === 'object' && typeof Tx.Amount.currency !== 'undefined') {
+						payment.amount = {
+							currency: Tx.Amount.currency,
+							issuer: Tx.Amount.issuer,
+							value: parseFloat(Tx.Amount.value)
+						}
+					}
+				
+					payment.sent_amount = payment.amount;
+            	
+					if (typeof Tx.metaData.DeliveredAmount === 'undefined' && typeof Tx.metaData.delivered_amount !== 'undefined') {
+						if(typeof Tx.metaData.delivered_amount === 'string') {
+							payment.amount = {
+								currency: "XRP",
+								value: parseFloat(Tx.metaData.delivered_amount / 1000000)
 							}
 						}
-						memos.push(memoLines.join('\n'))
+						else if(typeof Tx.metaData.delivered_amount === 'object' && typeof Tx.metaData.delivered_amount.currency !== 'undefined') {
+							payment.amount = {
+								currency: Tx.metaData.delivered_amount.currency,
+								issuer: Tx.metaData.delivered_amount.issuer,
+								value: parseFloat(Tx.metaData.delivered_amount.value)
+							}
+						}
+					}
+					else if (typeof Tx.metaData.DeliveredAmount !== 'undefined') {
+						if(typeof Tx.metaData.DeliveredAmount === 'string') {
+							payment.amount = {
+								currency: "XRP",
+								value: parseFloat(Tx.metaData.DeliveredAmount / 1000000)
+							}
+						}
+						else if(typeof Tx.metaData.DeliveredAmount === 'object' && typeof Tx.metaData.DeliveredAmount.currency !== 'undefined') {
+							payment.amount = {
+								currency: Tx.metaData.DeliveredAmount.currency,
+								issuer: Tx.metaData.DeliveredAmount.issuer,
+								value: parseFloat(Tx.metaData.DeliveredAmount.value)
+							}
+						}
+					}
+            	
+					// Not dealing with bridging/payment paths
+            	
+					Tx.metaData.AffectedNodes.forEach(affectedNode => {
+						if (typeof affectedNode.CreatedNode !== 'undefined' && affectedNode.CreatedNode.LedgerEntryType === 'AccountRoot') {
+							var activation = {
+								parent: Tx.Account,
+								child: affectedNode.CreatedNode.NewFields.Account,
+								ledger_index: Tx.LedgerSeq,
+								date: Tx.ClosingTime,
+								hash: Tx.hash
+							}
+							activations.push(activation);
+						}
 					})
-					if(memos.length > 0) {
-						payment.memos = memos.join('\n\n');
-					}
+            	
+					payments.push(payment);
 				}
-
-				if(typeof Tx.SourceTag !== 'undefined') {
-					payment.source_tag = parseInt(Tx.SourceTag);
-				}
-					
-				if(typeof Tx.Flags !== 'undefined') {
-					payment.flags = parseInt(Tx.Flags);
-				}
-					
-				if(typeof Tx.InvoiceID !== 'undefined') {
-					payment.invoice_id = Tx.InvoiceID;
-				}
-														
-				if(typeof Tx.DestinationTag !== 'undefined') {
-					payment.destination_tag = parseInt(Tx.DestinationTag);
-				}
-
-				if(typeof Tx.Amount === 'string') {
-					payment.amount = {
-						currency: "XRP",
-						value: parseFloat(Tx.Amount / 1000000)
-					}
-				} 
-				else if(typeof Tx.Amount === 'object' && typeof Tx.Amount.currency !== 'undefined') {
-					payment.amount = {
-						currency: Tx.Amount.currency,
-						issuer: Tx.Amount.issuer,
-						value: parseFloat(Tx.Amount.value)
-					}
-				}
-			
-				payment.sent_amount = payment.amount;
-
-				if (typeof Tx.metaData.DeliveredAmount === 'undefined' && typeof Tx.metaData.g_amount !== 'undefined') {
-					if(typeof Tx.metaData.delivered_amount === 'string') {
-						payment.amount = {
-							currency: "XRP",
-							value: parseFloat(Tx.metaData.delivered_amount / 1000000)
+				else if(Tx.TransactionType === "AccountSet") {
+					Tx.metaData.AffectedNodes.forEach(affectedNode => {
+						if (typeof affectedNode.ModifiedNode !== 'undefined' && affectedNode.ModifiedNode.LedgerEntryType === 'AccountRoot') {
+							var account_change = {
+								account: affectedNode.ModifiedNode.FinalFields.Account
+							}
+            	
+							if(typeof affectedNode.ModifiedNode.FinalFields.Domain !== 'undefined') {
+								account_change.domain = hex2a(affectedNode.ModifiedNode.FinalFields.Domain);
+							}
+            	
+							account_changes.push(account_change);
 						}
-					}
-					else if(typeof Tx.metaData.delivered_amount === 'object' && typeof Tx.metaData.delivered_amount.currency !== 'undefined') {
-						payment.amount = {
-							currency: Tx.metaData.delivered_amount.currency,
-							issuer: Tx.metaData.delivered_amount.issuer,
-							value: parseFloat(Tx.metaData.delivered_amount.value)
-						}
-					}
+					})
 				}
-				else if (typeof Tx.metaData.DeliveredAmount !== 'undefined') {
-					if(typeof Tx.metaData.DeliveredAmount === 'string') {
-						payment.amount = {
-							currency: "XRP",
-							value: parseFloat(Tx.metaData.DeliveredAmount / 1000000)
-						}
-					}
-					else if(typeof Tx.metaData.DeliveredAmount === 'object' && typeof Tx.metaData.DeliveredAmount.currency !== 'undefined') {
-						payment.amount = {
-							currency: Tx.metaData.DeliveredAmount.currency,
-							issuer: Tx.metaData.DeliveredAmount.issuer,
-							value: parseFloat(Tx.metaData.DeliveredAmount.value)
-						}
-					}
-				}
-
-				// Not dealing with bridging/payment paths
-
-				Tx.metaData.AffectedNodes.forEach(affectedNode => {
-					if (typeof affectedNode.CreatedNode !== 'undefined' && affectedNode.CreatedNode.LedgerEntryType === 'AccountRoot') {
-						var activation = {
-							parent: Tx.Account,
-							child: affectedNode.CreatedNode.NewFields.Account,
-							ledger_index: Tx.LedgerSeq,
-							date: Tx.ClosingTime,
-							hash: Tx.hash
-						}
-						activations.push(activation);
-					}
-				})
-
-				payments.push(payment);
 			}
 		});
 		
