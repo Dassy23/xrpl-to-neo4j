@@ -2,7 +2,7 @@ const Client = require('rippled-ws-client')
 const binarycodec = require('ripple-binary-codec');
 const shared = require('./shared.js');
 
-const commitSize = 10;
+const commitSize = 500;
 
 
 console.log('Connecting to rippled server');
@@ -22,8 +22,8 @@ new Client("wss://s2.ripple.com").then(Connection => {
 				command: 'ledger',
 				ledger_index: parseInt(ledger_index),
 				transactions: true,
-				expand: false, // Because expanded binary results do not contain transaction hashes, it has to be done in two queries. https://github.com/ripple/rippled/issues/2803
-				binary: false
+				expand: true, 
+				binary: true
 			}, 10).then(Result => {
 				if(!Result.ledger.closed) {
 					resolve({activations: [], account_changes: [], payments: [], done: true});
@@ -31,24 +31,25 @@ new Client("wss://s2.ripple.com").then(Connection => {
 				else if(typeof Result.ledger.transactions === 'undefined' || Result.ledger.transactions.length === 0) {
 					resolve({activations: [], account_changes: [], payments: [], done: false});
 				} else {
-					return Connection.send({
-							command: 'ledger',
-							ledger_index: parseInt(ledger_index),
-							transactions: true, // Because expanded binary results do not contain transaction hashes, it has to be done in two queries. https://github.com/ripple/rippled/issues/2803
-							expand: true
-						}, 10).then(Result => {
-							let transactions = Result.ledger.transactions.map(Tx => {
-								return Object.assign(Tx, {
-									ClosingTime: new Date((Result.ledger.close_time + 946684800) * 1000).toISOString(),
-									LedgerSeq: Result.ledger.ledger_index
-								})
-							})
+					var ledger = binarycodec.decodeLedgerData(Result.ledger.ledger_data);
+					let transactions = Result.ledger.transactions.map(Tx => {
+						
+						// Calculate transaction hash (https://github.com/ripple/rippled/issues/2803)
+						var txBuffer = Buffer.concat([Buffer.from("54584E00", 'hex'), Buffer.from(Tx.tx_blob, 'hex')]);
+						var transactionHash = crypto.createHash('sha512').update(txBuffer).digest('hex').substring(0,64).toUpperCase()
+						
+						// Return object
+						return Object.assign(binarycodec.decode(Tx.tx_blob), {
+							metaData: binarycodec.decode(Tx.meta),
+							ClosingTime: new Date((ledger.close_time + 946684800) * 1000).toISOString(),
+							LedgerSeq: ledger.ledger_index,
+							hash: transactionHash
+						})
+					})
 					
-							return prepareLedgerTransactions(transactions).then(result => {
-								resolve({activations: result.activations, account_changes: result.account_changes, payments: result.payments, done: false});
-							})
-							
-						}).catch(reject)
+					return prepareLedgerTransactions(transactions).then(result => {
+						resolve({activations: result.activations, account_changes: result.account_changes, payments: result.payments, done: false});
+					})
 				}
 				return
 			}).catch(reject)
