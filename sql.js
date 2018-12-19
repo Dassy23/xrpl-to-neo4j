@@ -2,8 +2,8 @@ const binarycodec = require('ripple-binary-codec');
 const sqlite = require('sqlite');
 const shared = require('./shared.js');
 
-const ledgersPerQuery = 1000;
-const commitSize = 10000;
+const ledgersPerQuery = 1000; // Querying 1000 ledgers at the time
+const commitSize = 10000; // Committing to Neo4j when a total objects (nodes+edges) reaches 10000
 
 const ledgerDbPromise = sqlite.open('./ledger.db', { Promise });
 const transactionDbPromise = sqlite.open('./transaction.db', { Promise });
@@ -39,16 +39,21 @@ Promise.all([ledgerDbPromise, transactionDbPromise]).then(dbOpenResults => {
 				});
 								
 				// Fetching all transactions
-				return transactionDB.all(`SELECT TransID, LedgerSeq, hex(RawTxn) AS RawTxn, hex(TxnMeta) AS TxnMeta FROM Transactions WHERE (TransType = "AccountSet" OR TransType = "Payment") AND LedgerSeq IN (${ledgersToQuery.join(',')}) ORDER BY LedgerSeq ASC, rowid ASC`).then(transactions => {
+				// Note: This is only querying AccountSet and Payment transactions.
+				return transactionDB.all("SELECT TransID, LedgerSeq, hex(RawTxn) AS RawTxn, hex(TxnMeta) AS TxnMeta FROM Transactions WHERE TransType IN ('AccountSet','Payment') AND LedgerSeq >= ? AND LedgerSeq <= ? ORDER BY LedgerSeq ASC, rowid ASC",ledgersToQuery[0],ledgersToQuery[ledgersToQuery.length - 1]).then(transactions => {
 
-					let Txs = transactions.map(Tx => {
-						return Object.assign(binarycodec.decode(Tx.RawTxn), {
-							metaData: binarycodec.decode(Tx.TxnMeta),
-							ClosingTime: ledgerMap[Tx.LedgerSeq],
-							LedgerSeq: Tx.LedgerSeq,
-							hash: Tx.TransID
-						})
-					})
+					var Txs = [];
+					transactions.forEach(Tx => {
+						let metaData = binarycodec.decode(Tx.TxnMeta); // Decode the metadata binary to miminize work of decoding the RawTxn for unsuccessful transactions
+						if(metaData.TransactionResult === "tesSUCCESS") { // Only include successfull transactions
+							Txs.push(Object.assign(binarycodec.decode(Tx.RawTxn), {
+								metaData: metaData,
+								ClosingTime: ledgerMap[Tx.LedgerSeq],
+								LedgerSeq: Tx.LedgerSeq,
+								hash: Tx.TransID
+							}));
+						}
+					});
 					
 					return prepareLedgerTransactions(Txs).then(result => {
 						resolve({activations: result.activations, account_changes: result.account_changes, payments: result.payments, lastLedgerIndex: ledgersToQuery[ledgersToQuery.length - 1], done: false});
